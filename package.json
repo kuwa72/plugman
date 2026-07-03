@@ -1,0 +1,17 @@
+{
+  "name": "plugman",
+  "version": "1.0.0",
+  "description": "VST Plugin Manager",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-packager . Plugman --platform=win32 --arch=x64 --out=dist --overwrite"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.14.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-packager": "^17.1.2"
+  }
+}
