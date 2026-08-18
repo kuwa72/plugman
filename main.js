@@ -257,10 +257,17 @@ function createWindow() {
 // VST2/VST3のメタデータをC++スキャナーで抽出する
 function getPluginMetadataNative(pluginPath) {
   return new Promise((resolve) => {
-    const scannerPath = path.join(__dirname, 'bin', 'vst_scanner.exe');
+    let scannerPath = path.join(__dirname, 'bin', 'vst_scanner.exe');
+    if (app.isPackaged) {
+      scannerPath = scannerPath.replace('app.asar', 'app.asar.unpacked');
+    }
     if (!fs.existsSync(scannerPath)) {
-      resolve({ success: false, error: 'Scanner binary not found' });
-      return;
+      // フォールバック: app.asar 内のパスも試す
+      scannerPath = path.join(__dirname, 'bin', 'vst_scanner.exe');
+      if (!fs.existsSync(scannerPath)) {
+        resolve({ success: false, error: 'Scanner binary not found' });
+        return;
+      }
     }
     
     execFile(scannerPath, [pluginPath], { timeout: 8000 }, (err, stdout) => {
