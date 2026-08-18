@@ -44,7 +44,7 @@ jobs:
         run: npm ci
 
       - name: Build Application & Package ZIP
-        run: ./scripts/build.sh --zip
+        run: bash ./scripts/build.sh --zip
 
       - name: Generate Checksum
         run: sha256sum Plugman-win32-x64.zip > Plugman-win32-x64.zip.sha256
