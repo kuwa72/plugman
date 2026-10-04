@@ -197,6 +197,10 @@ body {
   display: flex;
 }
 
+#tab-settings {
+  overflow-y: auto;
+}
+
 /* ヘッダーエリア */
 .content-header {
   display: flex;
@@ -663,7 +667,8 @@ body {
 }
 
 .form-group input[type="password"],
-.form-group input[type="text"] {
+.form-group input[type="text"],
+.form-group select {
   flex: 1;
   background-color: var(--panel-bg);
   border: 1px solid var(--border-color);
@@ -675,8 +680,26 @@ body {
   outline: none;
 }
 
-.form-group input:focus {
+.form-group select {
+  cursor: pointer;
+}
+
+.form-group input:focus,
+.form-group select:focus {
   border-color: var(--accent-color);
+}
+
+.confidence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: #e0af68;
+  border: 1px solid #e0af68;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  vertical-align: middle;
 }
 
 .tip {
