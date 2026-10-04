@@ -29,7 +29,7 @@ if (-not $SkipScanner) {
 }
 
 Write-Host "=== [3/3] Packaging Electron application ===" -ForegroundColor Cyan
-npx @electron/packager . Plugman --platform=win32 --arch=x64 --out=dist --overwrite --asar.unpackDir="bin"
+npx @electron/packager . Plugman --platform=win32 --arch=x64 --out=dist --overwrite --icon=assets/icon.ico --asar.unpackDir="bin"
 
 Write-Host "=== Build completed! ===" -ForegroundColor Green
 $ExePath = Join-Path $RootDir "dist\Plugman-win32-x64\Plugman.exe"

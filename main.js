@@ -237,6 +237,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 800,
+    icon: path.join(__dirname, 'assets', 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
