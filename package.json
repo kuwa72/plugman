@@ -1,12 +1,12 @@
 {
   "name": "plugman",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "VST Plugin Manager",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build:scanner": "x86_64-w64-mingw32-g++ vst_scanner.cpp -o bin/vst_scanner.exe -municode -static -O2 && x86_64-w64-mingw32-strip bin/vst_scanner.exe",
-    "build:electron": "npx @electron/packager . Plugman --platform=win32 --arch=x64 --out=dist --overwrite --asar.unpackDir=\"bin\"",
+    "build:electron": "npx @electron/packager . Plugman --platform=win32 --arch=x64 --out=dist --overwrite --icon=assets/icon.ico --asar.unpackDir=\"bin\"",
     "build": "npm run build:scanner && npm run build:electron"
   },
   "dependencies": {
