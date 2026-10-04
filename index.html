@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -24,19 +24,19 @@
     <!-- サイドバー -->
     <aside class="sidebar">
       <div class="nav-section">
-        <h3>主要機能</h3>
+        <h3 data-i18n="nav.main">Main</h3>
         <button class="nav-item active" id="btn-nav-all" data-tab="all">
           <i data-lucide="layout-grid"></i>
-          <span>すべてのプラグイン</span>
+          <span data-i18n="nav.all_plugins">All Plugins</span>
         </button>
         <button class="nav-item" id="btn-nav-settings" data-tab="settings">
           <i data-lucide="settings"></i>
-          <span>設定</span>
+          <span data-i18n="nav.settings">Settings</span>
         </button>
       </div>
 
       <div class="nav-section">
-        <h3>カテゴリー</h3>
+        <h3 data-i18n="nav.categories">Categories</h3>
         <div class="category-filters" id="category-filters-list">
           <!-- JSで動的に構築 -->
         </div>
@@ -51,10 +51,10 @@
           <div class="header-search">
             <div class="search-box">
               <i data-lucide="search" class="search-icon"></i>
-              <input type="text" id="search-input" placeholder="プラグイン名、メーカー名で検索...">
+              <input type="text" id="search-input" data-i18n-ph="search.ph" placeholder="Search by plugin or vendor name...">
             </div>
             <div class="filter-group">
-              <button class="filter-btn active" data-type="all">すべて</button>
+              <button class="filter-btn active" data-type="all" data-i18n="filter.all">All</button>
               <button class="filter-btn" data-type="vst3">VST3</button>
               <button class="filter-btn" data-type="vst2">VST2</button>
             </div>
@@ -63,13 +63,17 @@
           <div class="header-actions">
             <button class="btn btn-secondary" id="btn-scan">
               <i data-lucide="rotate-cw"></i>
-              <span>再スキャン</span>
+              <span data-i18n="action.rescan">Rescan</span>
             </button>
             <button class="btn btn-primary" id="btn-analyze-all">
               <i data-lucide="sparkles"></i>
-              <span>未解析を一括解析</span>
+              <span data-i18n="action.analyze_all">Analyze All Unanalyzed</span>
             </button>
-            <button class="btn btn-secondary" id="btn-toggle-chat" title="AIアシスタントを開く/閉じる">
+            <button class="btn btn-secondary" id="btn-reanalyze-all">
+              <i data-lucide="refresh-cw"></i>
+              <span data-i18n="action.reanalyze_all">Re-analyze All</span>
+            </button>
+            <button class="btn btn-secondary" id="btn-toggle-chat" data-i18n-title="chat.toggle" title="Toggle AI assistant">
               <i data-lucide="message-square"></i>
               <span>AI</span>
             </button>
@@ -80,23 +84,23 @@
         <div class="stats-bar">
           <div class="stat-card">
             <span class="stat-value" id="stat-total">0</span>
-            <span class="stat-label">検出プラグイン</span>
+            <span class="stat-label" data-i18n="stat.total">Detected Plugins</span>
           </div>
           <div class="stat-card">
             <span class="stat-value" id="stat-analyzed">0</span>
-            <span class="stat-label">解析済み</span>
+            <span class="stat-label" data-i18n="stat.analyzed">Analyzed</span>
           </div>
           <div class="stat-card">
             <span class="stat-value" id="stat-unresolved">0</span>
-            <span class="stat-label">未解析</span>
+            <span class="stat-label" data-i18n="stat.unresolved">Unanalyzed</span>
           </div>
           <div class="stat-card warning" id="stat-not-plugin-card">
             <span class="stat-value" id="stat-not-plugin">0</span>
-            <span class="stat-label">非プラグインの可能性</span>
+            <span class="stat-label" data-i18n="stat.not_plugin">Possibly Not Plugins</span>
           </div>
           <div class="stat-card info" id="stat-cost-card">
             <span class="stat-value" id="stat-cost">¥0.00</span>
-            <span class="stat-label">API料金 (概算)</span>
+            <span class="stat-label" data-i18n="stat.cost">API Cost (est.)</span>
           </div>
         </div>
 
@@ -104,7 +108,7 @@
         <div class="plugin-list-container">
           <div class="loading-overlay" id="loading-overlay">
             <div class="spinner"></div>
-            <p id="loading-text">プラグインをスキャン中...</p>
+            <p id="loading-text" data-i18n="scan.loading">Scanning plugins...</p>
           </div>
           <div class="plugin-list" id="plugin-list">
             <!-- VSTカードが動的に挿入される -->
@@ -115,39 +119,56 @@
       <!-- 設定タブ -->
       <div id="tab-settings" class="tab-pane">
         <div class="settings-container">
-          <h2>設定</h2>
+          <h2 data-i18n="settings.title">Settings</h2>
           
           <div class="settings-section">
-            <h3><i data-lucide="key-round"></i> Gemini APIキー</h3>
-            <p class="section-desc">VSTプラグインのメーカー特定、分類、説明の自動生成にGoogleのGemini APIを使用します。キーはローカルにのみ安全に保存されます。</p>
+            <h3><i data-lucide="key-round"></i> <span data-i18n="settings.apikey">Gemini API Key</span></h3>
+            <p class="section-desc" data-i18n="settings.apikey.desc">Google's Gemini API is used to identify vendors, classify plugins, and generate descriptions. The key is stored securely and locally only.</p>
             <div class="form-group">
-              <input type="password" id="input-api-key" placeholder="AIZA... で始まるAPIキーを入力">
-              <button class="btn btn-secondary" id="btn-toggle-key-visibility">表示</button>
+              <input type="password" id="input-api-key" data-i18n-ph="settings.apikey.ph" placeholder="Enter an API key starting with AIZA...">
+              <button class="btn btn-secondary" id="btn-toggle-key-visibility" data-i18n="settings.apikey.show">Show</button>
             </div>
-            <p class="tip">※ APIキーは <a href="https://aistudio.google.com/" target="_blank" class="external-link">Google AI Studio</a> から無料で取得できます。</p>
+            <p class="tip"><span data-i18n="settings.apikey.tip">You can get a free API key at</span> <a href="https://aistudio.google.com/" target="_blank" class="external-link">Google AI Studio</a><span data-i18n="settings.apikey.tip2"></span></p>
           </div>
 
           <div class="settings-section">
-            <h3><i data-lucide="folder-search"></i> スキャンパス設定</h3>
-            <p class="section-desc">VSTプラグイン（.dll, .vst3）を検索するフォルダを指定します。</p>
+            <h3><i data-lucide="languages"></i> <span data-i18n="settings.lang">Language</span></h3>
+            <p class="section-desc" data-i18n="settings.lang.desc">Language used for the interface and AI-generated descriptions. Applied after saving.</p>
+            <div class="form-group">
+              <select id="select-language">
+                <option value="auto" data-i18n="settings.lang.auto">Auto (system locale)</option>
+                <option value="en">English</option>
+                <option value="ja">日本語</option>
+                <option value="de">Deutsch</option>
+                <option value="fr">Français</option>
+                <option value="es">Español</option>
+                <option value="zh">中文 (简体)</option>
+                <option value="ko">한국어</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3><i data-lucide="folder-search"></i> <span data-i18n="settings.paths">Scan Paths</span></h3>
+            <p class="section-desc" data-i18n="settings.paths.desc">Folders to search for VST plugins (.dll, .vst3).</p>
             
             <div class="scan-paths-list" id="scan-paths-list">
               <!-- JSで動的に構築 -->
             </div>
 
             <div class="form-group path-add-group">
-              <input type="text" id="input-new-path" placeholder="C:\Path\To\VSTPlugins">
-              <button class="btn btn-secondary" id="btn-add-path">追加</button>
+              <input type="text" id="input-new-path" data-i18n-ph="settings.paths.ph" placeholder="C:\Path\To\VSTPlugins">
+              <button class="btn btn-secondary" id="btn-add-path" data-i18n="settings.paths.add">Add</button>
             </div>
           </div>
 
           <div class="settings-section">
-            <h3><i data-lucide="database"></i> データ管理</h3>
-            <p class="section-desc">解析済みのキャッシュデータをリセットし、すべてのプラグインのバイナリ（DLL/VST3）から製品名やメーカー情報を再取得（再スキャン）します。</p>
+            <h3><i data-lucide="database"></i> <span data-i18n="settings.data">Data Management</span></h3>
+            <p class="section-desc" data-i18n="settings.data.desc">Resets cached analysis data and re-reads product names and vendors from the plugin binaries (DLL/VST3).</p>
             <div class="settings-actions" style="margin-top: 10px; justify-content: flex-start;">
               <button class="btn btn-secondary" id="btn-reset-cache" style="border-color: var(--accent-red, #ef5350); color: var(--accent-red, #ef5350);">
                 <i data-lucide="refresh-cw"></i>
-                <span>キャッシュをリセットしてバイナリから再スキャン</span>
+                <span data-i18n="settings.data.reset">Reset cache and rescan binaries</span>
               </button>
             </div>
           </div>
@@ -155,7 +176,7 @@
           <div class="settings-actions">
             <button class="btn btn-primary" id="btn-save-settings">
               <i data-lucide="save"></i>
-              <span>設定を保存</span>
+              <span data-i18n="settings.save">Save Settings</span>
             </button>
           </div>
         </div>
@@ -165,23 +186,20 @@
     <!-- 右側チャットパネル -->
     <aside class="chat-panel" id="chat-panel">
       <div class="chat-header">
-        <h3><i data-lucide="sparkles"></i> AIアシスタント</h3>
-        <button class="action-btn" id="btn-close-chat" title="チャットを閉じる">
+        <h3><i data-lucide="sparkles"></i> <span data-i18n="chat.title">AI Assistant</span></h3>
+        <button class="action-btn" id="btn-close-chat" data-i18n-title="chat.toggle" title="Toggle AI assistant">
           <i data-lucide="x"></i>
         </button>
       </div>
       
       <div class="chat-messages" id="chat-messages">
-        <div class="message system">
-          こんにちは！Plugman AIアシスタントです。スキャンされたプラグインの情報を元に、用途に合わせたプラグインの提案や、データの直接修正が可能です。<br><br>
-          例：<br>
-          ・「ローファイな質感のドラムに合う歪み系はある？」<br>
-          ・「ANINAのカテゴリをEqualizerに変えて」
+        <div class="message system" data-i18n-html="chat.welcome.html">
+          Welcome
         </div>
       </div>
       
       <div class="chat-input-area">
-        <textarea id="chat-input" placeholder="AIに質問や修正指示を入力... (Ctrl+Enterで送信)"></textarea>
+        <textarea id="chat-input" data-i18n-ph="chat.input_ph" placeholder="Ask the AI or request a fix... (Ctrl+Enter to send)"></textarea>
         <button class="btn btn-primary" id="btn-send-chat">
           <i data-lucide="send"></i>
         </button>
@@ -192,15 +210,15 @@
   <!-- 一括解析プログレスモーダル -->
   <div class="modal" id="modal-progress">
     <div class="modal-content">
-      <h3>Gemini AIでプラグインを一括解析中</h3>
-      <p class="modal-desc">APIの制限を考慮しながら、順次プラグインの情報を解析しています...</p>
+      <h3 data-i18n="progress.title">Analyzing plugins with Gemini AI</h3>
+      <p class="modal-desc" data-i18n="progress.desc">Analyzing plugin information in batches, respecting API limits...</p>
       
       <div class="progress-bar-container">
         <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%;"></div>
       </div>
       
       <div class="progress-stats">
-        <span id="progress-current">0</span> / <span id="progress-total">0</span> 解析完了
+        <span id="progress-current">0</span> / <span id="progress-total">0</span><span data-i18n="progress.done_suffix"> analyzed</span>
       </div>
       
       <div class="progress-log" id="progress-log">
@@ -208,7 +226,7 @@
       </div>
       
       <div class="modal-actions">
-        <button class="btn btn-secondary" id="btn-cancel-analyze">キャンセル</button>
+        <button class="btn btn-secondary" id="btn-cancel-analyze" data-i18n="action.cancel">Cancel</button>
       </div>
     </div>
   </div>
@@ -216,17 +234,17 @@
   <!-- アンインストール支援モーダル -->
   <div class="modal" id="modal-uninstall">
     <div class="modal-content uninstall-modal-content">
-      <h3>プラグインのアンインストール</h3>
-      <p class="modal-desc" id="uninstall-plugin-info">プラグイン名 (メーカー)</p>
+      <h3 data-i18n="uninstall.title">Uninstall Plugin</h3>
+      <p class="modal-desc" id="uninstall-plugin-info">Plugin Name (Vendor)</p>
       
       <div class="uninstall-options">
         <!-- 1. ローカルアンインストーラー (動的に表示) -->
         <div class="uninstall-option-card" id="opt-local-uninstaller" style="display: none;">
           <div class="opt-icon"><i data-lucide="package-open"></i></div>
           <div class="opt-details">
-            <h4>公式アンインストーラーの起動</h4>
-            <p>プラグインの近くに見つかったアンインストーラーを実行します。</p>
-            <button class="btn btn-secondary btn-sm" id="btn-run-local-uninst">アンインストーラーを起動</button>
+            <h4 data-i18n="uninstall.opt1.title">Run official uninstaller</h4>
+            <p data-i18n="uninstall.opt1.desc">Runs an uninstaller found near the plugin.</p>
+            <button class="btn btn-secondary btn-sm" id="btn-run-local-uninst" data-i18n="uninstall.opt1.btn">Run uninstaller</button>
           </div>
         </div>
 
@@ -234,8 +252,8 @@
         <div class="uninstall-option-card" id="opt-plugin-manager" style="display: none;">
           <div class="opt-icon"><i data-lucide="sliders"></i></div>
           <div class="opt-details">
-            <h4>専用プラグインマネージャーの起動</h4>
-            <p>メーカー用の管理ツールを起動して安全にアンインストールします。</p>
+            <h4 data-i18n="uninstall.opt2.title">Run plugin manager app</h4>
+            <p data-i18n="uninstall.opt2.desc">Uninstall safely via the vendor's management tool.</p>
             <div class="manager-buttons" id="manager-buttons-container"></div>
           </div>
         </div>
@@ -244,9 +262,9 @@
         <div class="uninstall-option-card">
           <div class="opt-icon"><i data-lucide="monitor-play"></i></div>
           <div class="opt-details">
-            <h4>Windowsの「インストール済みアプリ」</h4>
-            <p>Windowsの設定画面を開き、手動でアンインストールします。</p>
-            <button class="btn btn-secondary btn-sm" id="btn-open-win-apps">設定画面を開く</button>
+            <h4 data-i18n="uninstall.opt3.title">Windows "Installed apps"</h4>
+            <p data-i18n="uninstall.opt3.desc">Open Windows Settings to uninstall manually.</p>
+            <button class="btn btn-secondary btn-sm" id="btn-open-win-apps" data-i18n="uninstall.opt3.btn">Open Settings</button>
           </div>
         </div>
 
@@ -254,19 +272,20 @@
         <div class="uninstall-option-card warning-card">
           <div class="opt-icon"><i data-lucide="trash-2"></i></div>
           <div class="opt-details">
-            <h4>ファイルをゴミ箱へ移動（ファイルのみの物理削除）</h4>
-            <p>アンインストーラー等がない場合の最終手段です。ファイル自体をゴミ箱へ移動します。</p>
-            <button class="btn btn-danger btn-sm" id="btn-force-delete">ファイルをゴミ箱に移動</button>
+            <h4 data-i18n="uninstall.opt4.title">Move file to Recycle Bin (file removal only)</h4>
+            <p data-i18n="uninstall.opt4.desc">Last resort when no uninstaller exists. Moves the file itself to the Recycle Bin.</p>
+            <button class="btn btn-danger btn-sm" id="btn-force-delete" data-i18n="uninstall.opt4.btn">Move file to Recycle Bin</button>
           </div>
         </div>
       </div>
       
       <div class="modal-actions">
-        <button class="btn btn-secondary" id="btn-close-uninstall-modal">キャンセル</button>
+        <button class="btn btn-secondary" id="btn-close-uninstall-modal" data-i18n="action.cancel">Cancel</button>
       </div>
     </div>
   </div>
 
+  <script src="locales.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

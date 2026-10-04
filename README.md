@@ -6,7 +6,8 @@ A desktop application (Electron) that scans large numbers of locally installed V
 
 ## Features
 - **Automatic scanning**: Automatically scans plugins (`.dll`, `.vst3`) from standard VST directories on Windows. Custom directories can also be added.
-- **AI classification & descriptions with Gemini**: From each plugin's file name and path, the AI identifies the product name, manufacturer, and category (synth, EQ, compressor, etc.) and generates a concise description.
+- **AI classification & descriptions with Gemini**: From each plugin's file name and path, the AI identifies the product name, manufacturer, and category (synth, EQ, compressor, etc.) and generates a concise description. Batch analysis sends multiple plugins per request with deterministic (temperature 0) output for consistent results, and VST3 `moduleinfo.json` metadata is used as ground truth when available.
+- **Multi-language UI**: English, Japanese, German, French, Spanish, Chinese, and Korean. The UI language is auto-detected from your OS locale and can be changed in Settings; AI descriptions follow the selected language.
 - **Smart cache**: Parsed plugin information is cached locally, so subsequent scans finish instantly.
 - **Safe removal**: Unwanted plugins are moved to the Windows Recycle Bin, so you can easily restore them if deleted by mistake.
 - **Explorer integration**: Open the folder containing a plugin with a single click.

@@ -97,6 +97,7 @@ function findLocalUninstallers(pluginPath) {
 // デフォルト設定
 const defaultSettings = {
   apiKey: '',
+  language: 'auto',
   scanPaths: [
     'C:\\Program Files\\Common Files\\VST3',
     'C:\\Program Files\\VSTPlugins',
@@ -286,6 +287,57 @@ function getPluginMetadataNative(pluginPath) {
   });
 }
 
+// VST3パッケージ内の公式メタデータ (moduleinfo.json) を読み取る
+function readVst3ModuleInfo(pluginPath) {
+  try {
+    const stats = fs.statSync(pluginPath);
+    if (!stats.isDirectory()) return null;
+    const infoPath = path.join(pluginPath, 'Contents', 'Resources', 'moduleinfo.json');
+    if (!fs.existsSync(infoPath)) return null;
+    const data = JSON.parse(fs.readFileSync(infoPath, 'utf-8'));
+    const cls = (data.Classes || [])[0] || {};
+    return {
+      name: data.Name || cls.Name || '',
+      vendor: data.Vendor || cls.Vendor || '',
+      version: data.Version || '',
+      subCategories: cls['Sub Categories'] || []
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// 同一ディレクトリ内の他のプラグインらしきファイル名（ベンダー推定の手がかり）
+function listSiblingPluginFiles(pluginPath, limit = 20) {
+  try {
+    const dir = path.dirname(pluginPath);
+    const self = path.basename(pluginPath);
+    return fs.readdirSync(dir)
+      .filter(f => f !== self && /\.(dll|vst3)$/i.test(f))
+      .slice(0, limit);
+  } catch (e) {
+    return [];
+  }
+}
+
+// 主要VSTベンダーの正規名リスト（AIによるメーカー名の表記揺れ正規化用）
+const KNOWN_VENDORS = [
+  'FabFilter', 'Native Instruments', 'Xfer Records', 'Spectrasonics', 'u-he',
+  'iZotope', 'Waves', 'Arturia', 'Valhalla DSP', 'Universal Audio', 'Softube',
+  'Soundtoys', 'Eventide', 'Plugin Alliance', 'Brainworx', 'McDSP', 'Slate Digital',
+  'Oeksound', 'Voxengo', 'MeldaProduction', 'Kilohearts', 'TAL Software', 'D16 Group',
+  'Steinberg', 'IK Multimedia', 'KORG', 'Roland', 'Cherry Audio', 'Synapse Audio',
+  'reFX', 'LennarDigital', 'Sonic Charge', 'Audio Damage', 'Cableguys', 'Baby Audio',
+  'Tokyo Dawn Records', 'Output', 'Heavyocity', 'Spitfire Audio', 'EastWest',
+  'Celemony', 'Antares', 'Image-Line', 'Ableton', 'Cockos', 'KV331 Audio',
+  'Minimal Audio', 'W.A. Production', 'Sonnox', 'Nugen Audio'
+];
+
+const DESCRIPTION_LANG_NAMES = {
+  en: 'English', ja: 'Japanese', de: 'German', fr: 'French',
+  es: 'Spanish', zh: 'Simplified Chinese', ko: 'Korean'
+};
+
 app.whenReady().then(() => {
   // 起動時にキャッシュをメモリにロード
   pluginsCache = loadCache();
@@ -351,7 +403,6 @@ app.whenReady().then(() => {
               name: nativeInfo.name,
               developer: nativeInfo.developer || 'Unknown',
               category: nativeInfo.category || 'Other',
-              description: 'DLLから基本情報を読み込みました。AIで説明文を生成できます。',
               is_plugin: true,
               nativeScanned: true
             };
@@ -365,14 +416,14 @@ app.whenReady().then(() => {
             }
           } else {
             // 非プラグインファイル（ロードエラーや非VSTファイル）
-            const errorMsg = nativeInfo && nativeInfo.error ? nativeInfo.error : 'VSTプラグインではない可能性があります。';
+            const errorMsg = nativeInfo && nativeInfo.error ? nativeInfo.error : 'Possibly not a VST plugin.';
             const isNotPlugin = errorMsg.includes('Not a valid VST2 or VST3 plugin');
             
             const cachedEntry = {
               name: plugin.name.replace(/\.(dll|vst3)$/i, ''),
               developer: 'Unknown',
               category: isNotPlugin ? 'Not Plugin' : 'unresolved',
-              description: isNotPlugin ? 'VSTプラグインではありません。' : `ロードエラー: ${errorMsg}`,
+              description: `Load error: ${errorMsg}`,
               is_plugin: !isNotPlugin,
               nativeScanned: true
             };
@@ -400,91 +451,142 @@ app.whenReady().then(() => {
     return uniquePlugins;
   });
 
-  // Geminiによるプラグイン解析
-  ipcMain.handle('analyze-plugin', async (event, pluginPath, pluginName, forceNativeScan = false) => {
+  // Geminiによるプラグイン一括解析（複数件を1リクエストで解析し、表記揺れを抑止）
+  ipcMain.handle('analyze-plugins', async (event, pluginList, language) => {
     const settings = loadSettings();
 
     if (!settings.apiKey) {
       return {
         success: false,
         error: 'API_KEY_MISSING',
-        message: 'Gemini APIキーが設定されていません。「設定」からAPIキーを入力してください。'
+        message: 'Gemini API key is not configured. Please enter it in Settings.'
       };
     }
 
+    if (!Array.isArray(pluginList) || pluginList.length === 0) {
+      return { success: false, error: 'EMPTY_LIST', message: 'No plugins to analyze.' };
+    }
+
     try {
-      // 個別リロード指示がある場合、または基本情報が未取得の場合はバイナリスキャンを行う
-      if (forceNativeScan || !pluginsCache[pluginPath] || !pluginsCache[pluginPath].nativeScanned) {
-        const nativeInfo = await getPluginMetadataNative(pluginPath);
-        if (nativeInfo && nativeInfo.success) {
-          pluginsCache[pluginPath] = {
-            name: nativeInfo.name,
-            developer: nativeInfo.developer || 'Unknown',
-            category: nativeInfo.category || 'Other',
-            description: 'DLLから基本情報を読み込みました。AIで説明文を生成できます。',
-            is_plugin: true,
-            nativeScanned: true
-          };
-          saveCache(pluginsCache);
+      // バイナリ未スキャンのものは先にネイティブスキャンで基本情報を取得
+      for (const p of pluginList) {
+        if (!pluginsCache[p.path] || !pluginsCache[p.path].nativeScanned) {
+          const nativeInfo = await getPluginMetadataNative(p.path);
+          if (nativeInfo && nativeInfo.success) {
+            pluginsCache[p.path] = {
+              name: nativeInfo.name,
+              developer: nativeInfo.developer || 'Unknown',
+              category: nativeInfo.category || 'Other',
+              is_plugin: true,
+              nativeScanned: true
+            };
+          }
         }
       }
 
+      // ヒント情報を集約してAIに渡す入力を構築
+      const inputPlugins = pluginList.map((p, idx) => {
+        const existing = pluginsCache[p.path] || {};
+        const moduleInfo = readVst3ModuleInfo(p.path);
+        return {
+          id: idx,
+          filename: p.name,
+          path: p.path,
+          type: p.type || '',
+          binaryName: existing.name || '',
+          binaryVendor: existing.developer || '',
+          binaryCategory: existing.category || '',
+          moduleinfo: moduleInfo,
+          siblingFiles: listSiblingPluginFiles(p.path)
+        };
+      });
+
+      const descLang = DESCRIPTION_LANG_NAMES[language] || 'English';
       const genAI = new GoogleGenerativeAI(settings.apiKey);
       const model = genAI.getGenerativeModel({
         model: 'gemini-2.5-flash',
-        generationConfig: { responseMimeType: 'application/json' }
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0 // 同一入力には同一結果を返し、再解析ごとのブレを抑える
+        }
       });
 
-      // DLLから抽出された情報があればヒントとして使う
-      const existingData = pluginsCache[pluginPath] || {};
-      const hintName = existingData.name || pluginName;
-      const hintDev = existingData.developer || 'Unknown';
-      const hintCategory = existingData.category || 'Other';
+      const prompt = `You are an expert on music production and VST plugins (instruments and effects).
+Identify each plugin in the "plugins" array below and output a JSON array of results.
 
-      const prompt = `あなたはDTM・音楽制作技術と各種VSTプラグイン（インストゥルメント、エフェクト）に非常に詳しいアシスタントです。
-以下のVSTプラグインと思われるファイル名、フルパス、およびDLLバイナリから抽出した基本情報を元に、プラグインの情報を特定し、指定のJSON形式で出力してください。
+For each plugin you are given: the filename, full path, plugin type (VST2/VST3),
+metadata extracted from the plugin binary itself (binaryName/binaryVendor/binaryCategory),
+the official VST3 moduleinfo.json contents when available, and names of other
+plugin files found in the same directory (siblingFiles, a hint for the vendor).
 
-ファイル名: "${pluginName}"
-パス: "${pluginPath}"
-DLLから抽出した製品名: "${hintName}"
-DLLから抽出したデベロッパー名: "${hintDev}"
-DLLからの暫定カテゴリ: "${hintCategory}"
+Rules:
+- Prefer moduleinfo.json fields when present; otherwise treat binaryName/binaryVendor
+  as the primary source and clean up their notation for the final name/developer.
+- Normalize "developer" to the canonical vendor name (e.g. "Native Instruments GmbH" -> "Native Instruments").
+  Known vendors for reference (not exhaustive): ${KNOWN_VENDORS.join(', ')}.
+- "category": exactly one of 'Synthesizer', 'Sampler', 'Equalizer', 'Compressor',
+  'Reverb', 'Delay', 'Distortion', 'Modulation', 'Utility', 'Other'. If the file is
+  clearly not a music-production plugin (e.g. a system DLL or unrelated file), use 'Not Plugin'.
+- "description": 1-2 concise, accurate sentences in ${descLang} describing what the plugin does.
+- "is_plugin": true for a music-production VST instrument/effect, false otherwise.
+- "confidence": "high" when identification is certain (official metadata or well-known product),
+  "medium" when reasonably inferred, "low" when guessing.
+- Be consistent: identical inputs must produce identical outputs, and plugins from the
+  same vendor in one batch must share the same developer name.
+- Output a pure JSON array. Each element: {"id": <same id>, "name", "developer",
+  "category", "description", "is_plugin", "confidence"}. No markdown fences.
 
-【出力するJSONフォーマット】
-{
-  "name": "プラグインの正式名称（例: 'Pro-Q 3', 'Serum'。基本はDLLから抽出した製品名をベースにし、必要に応じて表記揺れを綺麗にした名前）",
-  "developer": "デベロッパー名・メーカー名（例: 'FabFilter', 'Xfer Records'。基本はDLLから抽出したデベロッパー名をベースにし、必要に応じて正しいメーカー名にしてください）",
-  "category": "分類（以下のいずれかから最も適切なものを1つ選択: 'Synthesizer', 'Sampler', 'Equalizer', 'Compressor', 'Reverb', 'Delay', 'Distortion', 'Modulation', 'Utility', 'Other'。VSTプラグインではない（システムDLLや無関係なファイル）と判断した場合は'Not Plugin'）",
-  "description": "日本語による1〜2文程度の簡潔で的確な説明。どのような機能を持つプラグインか。",
-  "is_plugin": true または false (これが音楽制作向けのVSTエフェクトまたはインストゥルメントプラグインである場合はtrue、単なるシステムDLLや無関係なファイルの場合はfalse)
-}
-
-出力は純粋なJSONオブジェクトのみにしてください。マークダウンの\`\`\`jsonのような装飾は一切含めないでください。`;
+plugins:
+${JSON.stringify(inputPlugins)}`;
 
       const result = await model.generateContent(prompt);
       const text = result.response.text();
-      const parsedData = JSON.parse(text.trim());
+      const parsedArray = JSON.parse(text.trim());
 
-      // トークン使用量の取得
       const usage = result.response.usageMetadata || {};
-      const responseData = {
-        ...parsedData,
-        aiAnalyzed: true, // AI解析完了フラグ
-        nativeScanned: true,
-        usage: {
-          promptTokens: usage.promptTokenCount || 0,
-          completionTokens: usage.candidatesTokenCount || 0
-        }
-      };
+      const perItemPromptTokens = Math.round((usage.promptTokenCount || 0) / pluginList.length);
+      const perItemCompletionTokens = Math.round((usage.candidatesTokenCount || 0) / pluginList.length);
 
-      // キャッシュに保存
-      pluginsCache[pluginPath] = responseData;
+      const ALLOWED_CATEGORIES = new Set([
+        'Synthesizer', 'Sampler', 'Equalizer', 'Compressor', 'Reverb', 'Delay',
+        'Distortion', 'Modulation', 'Utility', 'Other', 'Not Plugin'
+      ]);
+
+      const results = {};
+      const seenIds = new Set();
+      for (const item of Array.isArray(parsedArray) ? parsedArray : []) {
+        const idx = Number(item.id);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= pluginList.length || seenIds.has(idx)) continue;
+        seenIds.add(idx);
+        const target = pluginList[idx];
+
+        const category = ALLOWED_CATEGORIES.has(item.category) ? item.category : 'Other';
+        const isPlugin = category === 'Not Plugin' ? false : item.is_plugin !== false;
+        const confidence = ['high', 'medium', 'low'].includes(item.confidence) ? item.confidence : 'medium';
+
+        const prev = pluginsCache[target.path] || {};
+        const responseData = {
+          ...prev,
+          name: item.name || target.name,
+          developer: item.developer || 'Unknown',
+          category,
+          description: item.description || prev.description || '',
+          is_plugin: isPlugin,
+          confidence,
+          aiAnalyzed: true,
+          nativeScanned: true,
+          usage: {
+            promptTokens: perItemPromptTokens,
+            completionTokens: perItemCompletionTokens
+          }
+        };
+
+        pluginsCache[target.path] = responseData;
+        results[target.path] = responseData;
+      }
       saveCache(pluginsCache);
 
-      return {
-        success: true,
-        data: responseData
-      };
+      return { success: true, results };
     } catch (err) {
       console.error('Gemini API request failed:', err);
       return {
@@ -586,20 +688,24 @@ DLLからの暫定カテゴリ: "${hintCategory}"
   });
 
   // AIアシスタントへのチャットメッセージ送信とアクション実行
-  ipcMain.handle('send-chat-message', async (event, message, pluginsList) => {
+  ipcMain.handle('send-chat-message', async (event, message, pluginsList, language) => {
     const settings = loadSettings();
     if (!settings.apiKey) {
       return {
         success: false,
-        reply: 'Gemini APIキーが設定されていません。「設定」タブから登録してください。'
+        reply: 'Gemini API key is not configured. Please register it in the Settings tab.'
       };
     }
 
     try {
+      const replyLang = DESCRIPTION_LANG_NAMES[language] || 'English';
       const genAI = new GoogleGenerativeAI(settings.apiKey);
       const model = genAI.getGenerativeModel({
         model: 'gemini-2.5-flash',
-        generationConfig: { responseMimeType: 'application/json' }
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0
+        }
       });
 
       // トークン節約のためにプラグインデータを簡略化
@@ -612,35 +718,36 @@ DLLからの暫定カテゴリ: "${hintCategory}"
         type: p.type
       }));
 
-      const prompt = `あなたはプラグイン管理アプリ「Plugman」の専属AIアシスタントです。
-ユーザーはプラグインについての質問（提案など）や、データの修正（正式名、メーカー、分類、説明の変更）を指示します。
+      const prompt = `You are the dedicated AI assistant of the plugin manager app "Plugman".
+The user asks questions about plugins (e.g. suggestions) or instructs you to fix plugin data (formal name, vendor, category, description).
 
-スキャンされているプラグインのリスト：
+Scanned plugin list:
 ${JSON.stringify(simplifiedPlugins)}
 
-【回答のルール】
-1. ユーザーがプラグインの提案を求めた場合は、上記のリストを元に最も適したものをいくつか選んで、その特徴と共に提案してください。
-2. ユーザーがデータの修正（例: 「〇〇のカテゴリをEQに変えて」など）を指示した場合は、指示された内容に基づいて該当するプラグインの情報を修正する「action」をJSON内に作成してください。
-3. カテゴリ（category）を修正する場合、以下のいずれかから選択してください：'Synthesizer', 'Sampler', 'Equalizer', 'Compressor', 'Reverb', 'Delay', 'Distortion', 'Modulation', 'Utility', 'Other', 'Not Plugin'。
+Rules:
+1. If the user asks for plugin suggestions, pick the most suitable ones from the list above and explain their characteristics.
+2. If the user instructs a data fix (e.g. "change ANINA's category to Equalizer"), create an "action" object in the JSON that applies the requested change to the matching plugin.
+3. When changing "category", choose exactly one of: 'Synthesizer', 'Sampler', 'Equalizer', 'Compressor', 'Reverb', 'Delay', 'Distortion', 'Modulation', 'Utility', 'Other', 'Not Plugin'.
+4. Write "reply" in ${replyLang}. If you write a "description" inside an action, also write it in ${replyLang}.
 
-【出力するJSONフォーマット】
+Output JSON format:
 {
-  "reply": "ユーザーへの日本語での返答メッセージ。提案や説明など。",
-  "action": null または {
+  "reply": "reply message to the user",
+  "action": null or {
     "type": "update_plugin",
-    "path": "修正対象プラグインのフルパス (path)",
+    "path": "full path of the plugin to fix (path)",
     "data": {
-      "name": "修正後の製品名（指示がなければ元のままでよい）",
-      "developer": "修正後のデベロッパー名（指示がなければ元のままでよい）",
-      "category": "修正後の分類（指示がなければ元のままでよい）",
-      "description": "修正後の説明文（指示がなければ元のままでよい。もし『このプラグインは〜〜をするもの』という詳細な修正指示があれば、それを元に1〜2文の的確な日本語説明文を作ってください）"
+      "name": "fixed product name (keep original if not instructed)",
+      "developer": "fixed vendor name (keep original if not instructed)",
+      "category": "fixed category (keep original if not instructed)",
+      "description": "fixed description (keep original if not instructed; if the user gives detailed info, write a concise 1-2 sentence description in ${replyLang})"
     }
   }
 }
 
-ユーザーのメッセージ: "${message}"
+User message: "${message}"
 
-出力は純粋なJSONオブジェクトのみにしてください。マークダウンの\`\`\`jsonのような装飾は一切含めないでください。`;
+Output a pure JSON object only. No markdown fences such as \`\`\`json.`;
 
       const result = await model.generateContent(prompt);
       const text = result.response.text();

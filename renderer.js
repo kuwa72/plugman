@@ -7,6 +7,93 @@ let isAnalyzingAll = false;
 let activeUninstallPlugin = null; // 現在アンインストールモーダルで対象としているプラグイン
 let detectedUninstallInfo = null; // 検出されたアンインストール情報
 
+// 一括解析のバッチ設定
+const ANALYZE_BATCH_SIZE = 10;
+const ANALYZE_BATCH_CONCURRENCY = 2;
+
+// ----------------------------------------------------
+// i18n
+// ----------------------------------------------------
+let currentLang = 'en';
+
+function detectSystemLang() {
+  const nav = (navigator.language || 'en').toLowerCase();
+  for (const lang of PLUGMAN_SUPPORTED_LANGS) {
+    if (nav === lang || nav.startsWith(lang + '-')) return lang;
+  }
+  // zh-TW/zh-HK などは簡体字辞書へフォールバック
+  if (nav.startsWith('zh')) return 'zh';
+  return 'en';
+}
+
+function resolveLang() {
+  const pref = settings.language || 'auto';
+  return pref === 'auto' ? detectSystemLang() : pref;
+}
+
+function t(key, params) {
+  let str = PLUGMAN_LOCALES[currentLang] && PLUGMAN_LOCALES[currentLang][key];
+  if (str === undefined) str = PLUGMAN_LOCALES.en[key];
+  if (str === undefined) return key;
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      str = str.split(`{${k}}`).join(String(v));
+    }
+  }
+  return str;
+}
+
+function applyI18n() {
+  currentLang = resolveLang();
+  document.documentElement.lang = currentLang;
+
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = t(el.getAttribute('data-i18n'));
+  });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => {
+    el.innerHTML = t(el.getAttribute('data-i18n-html'));
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+    el.placeholder = t(el.getAttribute('data-i18n-ph'));
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    el.title = t(el.getAttribute('data-i18n-title'));
+  });
+
+  // キー表示/非表示ボタンは入力状態に依存するため個別更新
+  btnToggleKeyVisibility.textContent = inputApiKey.type === 'password'
+    ? t('settings.apikey.show') : t('settings.apikey.hide');
+
+  // 動的コンテンツの再描画
+  updateStatistics();
+  renderCategorySidebar();
+  filterAndRenderPlugins();
+}
+
+function localeTag() {
+  return PLUGMAN_LOCALE_TAGS[currentLang] || 'en-US';
+}
+
+// カテゴリキー → i18nキーの対応
+function categoryLabel(catKey) {
+  const map = {
+    'all': 'cat.all',
+    'Synthesizer': 'cat.synthesizer',
+    'Sampler': 'cat.sampler',
+    'Equalizer': 'cat.equalizer',
+    'Compressor': 'cat.compressor',
+    'Reverb': 'cat.reverb',
+    'Delay': 'cat.delay',
+    'Distortion': 'cat.distortion',
+    'Modulation': 'cat.modulation',
+    'Utility': 'cat.utility',
+    'Other': 'cat.other',
+    'unresolved': 'cat.unresolved',
+    'Not Plugin': 'cat.not_plugin'
+  };
+  return map[catKey] ? t(map[catKey]) : catKey;
+}
+
 // DOMの取得
 const tabPlugins = document.getElementById('tab-plugins');
 const tabSettings = document.getElementById('tab-settings');
@@ -19,6 +106,7 @@ const searchInput = document.getElementById('search-input');
 const filterBtns = document.querySelectorAll('.filter-btn');
 const btnScan = document.getElementById('btn-scan');
 const btnAnalyzeAll = document.getElementById('btn-analyze-all');
+const btnReanalyzeAll = document.getElementById('btn-reanalyze-all');
 
 // 統計表示
 const statTotal = document.getElementById('stat-total');
@@ -30,6 +118,7 @@ const statNotPluginCard = document.getElementById('stat-not-plugin-card');
 // 設定関連のDOM
 const inputApiKey = document.getElementById('input-api-key');
 const btnToggleKeyVisibility = document.getElementById('btn-toggle-key-visibility');
+const selectLanguage = document.getElementById('select-language');
 const scanPathsList = document.getElementById('scan-paths-list');
 const inputNewPath = document.getElementById('input-new-path');
 const btnAddPath = document.getElementById('btn-add-path');
@@ -62,23 +151,6 @@ const btnCloseChat = document.getElementById('btn-close-chat');
 const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const btnSendChat = document.getElementById('btn-send-chat');
-
-// カテゴリ定義と表示名
-const CATEGORY_MAP = {
-  'all': 'すべて',
-  'Synthesizer': 'シンセサイザー',
-  'Sampler': 'サンプラー',
-  'Equalizer': 'イコライザー',
-  'Compressor': 'コンプレッサー',
-  'Reverb': 'リバーブ',
-  'Delay': 'ディレイ',
-  'Distortion': 'ディストーション',
-  'Modulation': 'モジュレーション',
-  'Utility': 'ユーティリティ',
-  'Other': 'その他',
-  'unresolved': '未解析',
-  'Not Plugin': '非プラグインの疑い'
-};
 
 // 初期ロード
 window.addEventListener('DOMContentLoaded', async () => {
@@ -136,6 +208,8 @@ function switchTab(tabName) {
 async function loadAndDisplaySettings() {
   settings = await window.api.getSettings();
   inputApiKey.value = settings.apiKey;
+  selectLanguage.value = settings.language || 'auto';
+  applyI18n();
   renderScanPaths();
 }
 
@@ -181,29 +255,31 @@ btnAddPath.addEventListener('click', () => {
 btnToggleKeyVisibility.addEventListener('click', () => {
   if (inputApiKey.type === 'password') {
     inputApiKey.type = 'text';
-    btnToggleKeyVisibility.textContent = '非表示';
+    btnToggleKeyVisibility.textContent = t('settings.apikey.hide');
   } else {
     inputApiKey.type = 'password';
-    btnToggleKeyVisibility.textContent = '表示';
+    btnToggleKeyVisibility.textContent = t('settings.apikey.show');
   }
 });
 
 // 設定保存
 btnSaveSettings.addEventListener('click', async () => {
   settings.apiKey = inputApiKey.value.trim();
+  settings.language = selectLanguage.value;
   const success = await window.api.saveSettings(settings);
   if (success) {
-    alert('設定を保存しました。再スキャンを開始します。');
+    applyI18n();
+    alert(t('alert.settings_saved'));
     switchTab('all');
     await scanAndRenderPlugins();
   } else {
-    alert('設定の保存に失敗しました。');
+    alert(t('alert.settings_save_failed'));
   }
 });
 
 // キャッシュのリセットとバイナリ再スキャン
 btnResetCache.addEventListener('click', async () => {
-  if (confirm('現在の解析データ（説明文や手動の編集結果含む）がすべてリセットされ、すべてのプラグインのバイナリから正確な名前とデベロッパー情報を再スキャンします。\nよろしいですか？')) {
+  if (confirm(t('confirm.reset_cache'))) {
     switchTab('all');
     await scanAndRenderPlugins(true);
   }
@@ -213,7 +289,7 @@ btnResetCache.addEventListener('click', async () => {
 // プラグインスキャン・レンダリング処理
 // ----------------------------------------------------
 async function scanAndRenderPlugins(forceNativeScan = false) {
-  showLoading(forceNativeScan ? 'キャッシュをリセットしてバイナリから再スキャン中...' : 'プラグインをスキャン中...');
+  showLoading(t(forceNativeScan ? 'scan.loading_reset' : 'scan.loading'));
   try {
     allPlugins = await window.api.scanPlugins(forceNativeScan);
     updateStatistics();
@@ -221,7 +297,7 @@ async function scanAndRenderPlugins(forceNativeScan = false) {
     filterAndRenderPlugins();
   } catch (err) {
     console.error('Scan failed:', err);
-    alert('スキャン中にエラーが発生しました。');
+    alert(t('alert.scan_error'));
   } finally {
     hideLoading();
   }
@@ -274,7 +350,7 @@ function updateStatistics() {
   const statCost = document.getElementById('stat-cost');
   if (statCost) {
     statCost.textContent = `¥${totalCostJPY.toFixed(2)}`;
-    statCost.setAttribute('title', `USD: $${totalCostUSD.toFixed(5)} (1ドル=155円換算)`);
+    statCost.setAttribute('title', t('stat.cost_title', { usd: totalCostUSD.toFixed(5) }));
   }
 
   // 非プラグインの警告カード表示制御
@@ -315,7 +391,7 @@ function renderCategorySidebar() {
     const count = counts[catKey] || 0;
     // 件数があるもの、または基本キー（all, unresolved）のみ表示
     if (count > 0 || catKey === 'all' || catKey === 'unresolved') {
-      const displayName = CATEGORY_MAP[catKey] || catKey;
+      const displayName = categoryLabel(catKey);
       const btn = document.createElement('button');
       btn.className = `category-btn ${currentFilterCategory === catKey ? 'active' : ''}`;
       btn.setAttribute('data-category', catKey);
@@ -371,7 +447,7 @@ function filterAndRenderPlugins() {
   // レンダリング
   pluginList.innerHTML = '';
   if (filtered.length === 0) {
-    pluginList.innerHTML = `<div class="empty-state">該当するプラグインが見つかりません。</div>`;
+    pluginList.innerHTML = `<div class="empty-state">${t('empty.plugins')}</div>`;
     return;
   }
 
@@ -389,30 +465,33 @@ function filterAndRenderPlugins() {
     let footerContent = '';
     
     if (p.analyzed) {
-      const developer = p.developer || 'Unknown';
-      const description = p.description || '説明はありません。';
-      const categoryLabel = CATEGORY_MAP[p.category] || p.category || 'Other';
+      const developer = p.developer || t('misc.unknown');
+      const description = p.description || t('misc.no_desc');
+      const catLabel = categoryLabel(p.category || 'Other');
       const categoryClass = (p.category || 'Other').toLowerCase().replace(/\s+/g, '');
+      const confidenceBadge = p.confidence === 'low'
+        ? `<span class="confidence-badge" title="${t('badge.low_confidence')}">?</span>`
+        : '';
 
       bodyContent = `
         <div class="plugin-title-area">
-          <div class="plugin-name">${p.name || name}</div>
+          <div class="plugin-name">${p.name || name}${confidenceBadge}</div>
           <div class="plugin-developer">${developer}</div>
         </div>
         <div class="plugin-desc">${description}</div>
       `;
 
       footerContent = `
-        <span class="plugin-category-badge ${categoryClass}">${categoryLabel}</span>
-        <button class="action-btn re-analyze-btn" data-path="${p.path}" data-name="${name}" title="このプラグインをバイナリから再取得して再解析">
+        <span class="plugin-category-badge ${categoryClass}">${catLabel}</span>
+        <button class="action-btn re-analyze-btn" data-path="${p.path}" data-name="${name}" title="${t('plugin.re_analyze_t')}">
           <i data-lucide="refresh-cw"></i>
-          <span>再解析</span>
+          <span>${t('plugin.re_analyze')}</span>
         </button>
       `;
     } else {
       // 未解析の場合（C++スキャン済みで、AI説明文のみ未生成の状態も含む）
-      const developer = p.developer || '未解析のプラグイン';
-      const description = p.description || 'Gemini AIでプラグイン情報を解析できます。';
+      const developer = p.developer || t('misc.unanalyzed');
+      const description = p.description || t('misc.ai_hint');
       const displayName = p.name || name;
 
       bodyContent = `
@@ -426,23 +505,23 @@ function filterAndRenderPlugins() {
       footerContent = `
         <button class="action-btn ai-btn" data-path="${p.path}" data-name="${displayName}">
           <i data-lucide="sparkles"></i>
-          <span>AI解析</span>
+          <span>${t('plugin.ai_analyze')}</span>
         </button>
       `;
     }
 
     // サイズと日付の整形
     const sizeMB = (p.size / (1024 * 1024)).toFixed(2);
-    const dateStr = p.modified ? new Date(p.modified).toLocaleDateString('ja-JP') : '不明';
+    const dateStr = p.modified ? new Date(p.modified).toLocaleDateString(localeTag()) : t('misc.unknown_date');
 
     card.innerHTML = `
       <div class="plugin-card-header">
         <span class="plugin-type-badge ${typeClass}">${typeLabel}</span>
         <div class="card-actions">
-          <button class="action-btn open-folder" data-path="${p.path}" title="フォルダを開く">
+          <button class="action-btn open-folder" data-path="${p.path}" title="${t('plugin.open_folder_t')}">
             <i data-lucide="folder"></i>
           </button>
-          <button class="action-btn delete" data-path="${p.path}" title="アンインストール / 削除">
+          <button class="action-btn delete" data-path="${p.path}" title="${t('plugin.delete_t')}">
             <i data-lucide="trash-2"></i>
           </button>
         </div>
@@ -466,7 +545,7 @@ function filterAndRenderPlugins() {
         const path = e.currentTarget.getAttribute('data-path');
         const name = e.currentTarget.getAttribute('data-name');
         e.currentTarget.classList.add('analyzing');
-        e.currentTarget.innerHTML = `<i data-lucide="loader" class="spinner"></i> 解析中...`;
+        e.currentTarget.innerHTML = `<i data-lucide="loader" class="spinner"></i> ${t('plugin.analyzing')}`;
         lucide.createIcons();
         await analyzeSinglePlugin(path, name);
       });
@@ -479,7 +558,7 @@ function filterAndRenderPlugins() {
         const path = e.currentTarget.getAttribute('data-path');
         const name = e.currentTarget.getAttribute('data-name');
         e.currentTarget.classList.add('analyzing');
-        e.currentTarget.innerHTML = `<i data-lucide="loader" class="spinner"></i> 再解析中...`;
+        e.currentTarget.innerHTML = `<i data-lucide="loader" class="spinner"></i> ${t('plugin.re_analyzing')}`;
         lucide.createIcons();
         await reAnalyzeSinglePlugin(path, name);
       });
@@ -508,7 +587,7 @@ function filterAndRenderPlugins() {
 async function showUninstallModal(plugin) {
   activeUninstallPlugin = plugin;
   const name = plugin.name || plugin.filename;
-  const developer = plugin.developer || 'Unknown';
+  const developer = plugin.developer || t('misc.unknown');
   
   uninstallPluginInfo.textContent = `${name} (${developer})`;
   
@@ -529,7 +608,7 @@ async function showUninstallModal(plugin) {
       optLocalUninstaller.style.display = 'flex';
       const mainUninst = detectedUninstallInfo.localUninstallers[0];
       btnRunLocalUninst.setAttribute('data-path', mainUninst.path);
-      btnRunLocalUninst.textContent = `「${mainUninst.name}」を起動`;
+      btnRunLocalUninst.textContent = t('uninstall.launch', { name: mainUninst.name });
     }
     
     // 2. プラグインマネージャーの表示制御
@@ -545,10 +624,10 @@ async function showUninstallModal(plugin) {
         btn.addEventListener('click', async () => {
           const res = await window.api.runExecutable(manager.path);
           if (res.success) {
-            alert(`${manager.name} を起動しました。管理アプリからアンインストールを行ってください。`);
+            alert(t('alert.manager_started', { name: manager.name }));
             closeUninstallModal();
           } else {
-            alert(`起動に失敗しました: ${res.message}`);
+            alert(`${t('alert.launch_failed')}${res.message}`);
           }
         });
         managerButtonsContainer.appendChild(btn);
@@ -573,13 +652,13 @@ btnCloseUninstallModal.addEventListener('click', closeUninstallModal);
 btnRunLocalUninst.addEventListener('click', async (e) => {
   const exePath = e.currentTarget.getAttribute('data-path');
   if (exePath) {
-    if (confirm('ローカルの公式アンインストーラーを起動します。よろしいですか？')) {
+    if (confirm(t('confirm.local_uninst'))) {
       const res = await window.api.runExecutable(exePath);
       if (res.success) {
-        alert('アンインストーラーを起動しました。ウィザードの指示に従って完了させてください。\n完了後、「再スキャン」を実行して一覧を更新してください。');
+        alert(t('alert.uninst_started'));
         closeUninstallModal();
       } else {
-        alert(`アンインストーラーの起動に失敗しました: ${res.message}`);
+        alert(`${t('alert.uninst_failed')}${res.message}`);
       }
     }
   }
@@ -589,10 +668,10 @@ btnRunLocalUninst.addEventListener('click', async (e) => {
 btnOpenWinApps.addEventListener('click', async () => {
   const res = await window.api.openWindowsApps();
   if (res.success) {
-    alert('Windowsのアプリ設定画面を開きました。「インストールされているアプリ」一覧から該当プラグインを探してアンインストールしてください。');
+    alert(t('alert.winapps_opened'));
     closeUninstallModal();
   } else {
-    alert(`設定画面の起動に失敗しました: ${res.message}`);
+    alert(`${t('alert.winapps_failed')}${res.message}`);
   }
 });
 
@@ -601,7 +680,7 @@ btnForceDelete.addEventListener('click', async () => {
   if (!activeUninstallPlugin) return;
   const path = activeUninstallPlugin.path;
   
-  if (confirm(`最終手段として、プラグインファイルを直接ゴミ箱へ移動します。よろしいですか？\n※アンインストーラーを使用しないため、レジストリや設定がPCに残る場合があります。\n\n対象パス:\n${path}`)) {
+  if (confirm(t('confirm.force_delete', { path }))) {
     const res = await window.api.deletePlugin(path);
     if (res.success) {
       allPlugins = allPlugins.filter(pl => pl.path !== path);
@@ -610,7 +689,7 @@ btnForceDelete.addEventListener('click', async () => {
       filterAndRenderPlugins();
       closeUninstallModal();
     } else {
-      alert(`ファイルの削除に失敗しました: ${res.message}`);
+      alert(`${t('alert.delete_failed')}${res.message}`);
     }
   }
 });
@@ -618,19 +697,19 @@ btnForceDelete.addEventListener('click', async () => {
 // 個別プラグイン解析
 async function analyzeSinglePlugin(path, name) {
   if (!settings.apiKey) {
-    alert('Gemini APIキーを設定画面で登録してください。');
+    alert(t('alert.no_apikey'));
     filterAndRenderPlugins();
     return;
   }
   
-  const res = await window.api.analyzePlugin(path, name);
-  if (res.success) {
+  const res = await window.api.analyzePlugins([{ path, name }], currentLang);
+  if (res.success && res.results[path]) {
     // スキャンリストの該当プラグイン情報を更新
     const idx = allPlugins.findIndex(pl => pl.path === path);
     if (idx !== -1) {
       allPlugins[idx] = {
         ...allPlugins[idx],
-        ...res.data,
+        ...res.results[path],
         analyzed: true
       };
     }
@@ -638,7 +717,7 @@ async function analyzeSinglePlugin(path, name) {
     renderCategorySidebar();
     filterAndRenderPlugins();
   } else {
-    alert('解析に失敗しました: ' + res.message);
+    alert(t('alert.analyze_failed') + (res.message || ''));
     filterAndRenderPlugins();
   }
 }
@@ -646,18 +725,18 @@ async function analyzeSinglePlugin(path, name) {
 // 個別プラグインの再スキャン・再解析
 async function reAnalyzeSinglePlugin(path, name) {
   if (!settings.apiKey) {
-    alert('Gemini APIキーを設定画面で登録してください。');
+    alert(t('alert.no_apikey'));
     filterAndRenderPlugins();
     return;
   }
   
-  const res = await window.api.analyzePlugin(path, name, true);
-  if (res.success) {
+  const res = await window.api.analyzePlugins([{ path, name }], currentLang);
+  if (res.success && res.results[path]) {
     const idx = allPlugins.findIndex(pl => pl.path === path);
     if (idx !== -1) {
       allPlugins[idx] = {
         ...allPlugins[idx],
-        ...res.data,
+        ...res.results[path],
         analyzed: true
       };
     }
@@ -665,7 +744,7 @@ async function reAnalyzeSinglePlugin(path, name) {
     renderCategorySidebar();
     filterAndRenderPlugins();
   } else {
-    alert('再解析に失敗しました: ' + res.message);
+    alert(t('alert.reanalyze_failed') + (res.message || ''));
     filterAndRenderPlugins();
   }
 }
@@ -676,67 +755,77 @@ btnScan.addEventListener('click', async () => {
 });
 
 // ----------------------------------------------------
-// 一括解析処理（並列化）
+// 一括解析処理（バッチAPI + 並列化）
 // ----------------------------------------------------
-btnAnalyzeAll.addEventListener('click', async () => {
+function chunkArray(arr, size) {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+
+async function runBatchAnalyze(targets) {
   if (!settings.apiKey) {
-    alert('Gemini APIキーを設定画面で登録してください。');
+    alert(t('alert.no_apikey'));
     switchTab('settings');
     return;
   }
+  if (targets.length === 0) return;
 
-  const unanalyzed = allPlugins.filter(p => !p.analyzed);
-  if (unanalyzed.length === 0) {
-    alert('未解析のプラグインはありません。');
-    return;
-  }
-
-  // 並行数
-  const concurrency = 5;
-
-  if (!confirm(`未解析のプラグイン ${unanalyzed.length} 件を一括で解析します。\n※ 有料枠向けに並行数 ${concurrency} で並列実行します。よろしいですか？`)) {
-    return;
-  }
+  const batches = chunkArray(targets, ANALYZE_BATCH_SIZE);
 
   // モーダル表示
   isAnalyzingAll = true;
   modalProgress.classList.add('show');
-  progressTotal.textContent = unanalyzed.length;
+  progressTotal.textContent = targets.length;
   progressCurrent.textContent = '0';
   progressBarFill.style.width = '0%';
   progressLog.innerHTML = '';
-  addLog(`一括解析を開始します（並行数: ${concurrency}）...`, 'success');
+  addLog(t('log.batch_start', {
+    count: targets.length,
+    batches: batches.length,
+    concurrency: ANALYZE_BATCH_CONCURRENCY
+  }), 'success');
 
   let processedCount = 0;
-  const queue = [...unanalyzed];
+  let failedCount = 0;
+  let batchIndex = 0;
+  const totalBatches = batches.length;
 
-  // 並行ワーカーの定義
+  // バッチ単位のワーカー（1リクエストで複数プラグインを解析）
   const worker = async () => {
-    while (queue.length > 0 && isAnalyzingAll) {
-      const plugin = queue.shift();
-      if (!plugin) break;
+    while (batchIndex < totalBatches && isAnalyzingAll) {
+      const myBatch = batches[batchIndex++];
+      addLog(t('log.analyzing', { batch: batchIndex, total: totalBatches, count: myBatch.length }));
 
-      addLog(`解析中: ${plugin.name}`);
-      const res = await window.api.analyzePlugin(plugin.path, plugin.name);
-      
+      const res = await window.api.analyzePlugins(
+        myBatch.map(p => ({ path: p.path, name: p.name, type: p.type })),
+        currentLang
+      );
+
       if (res.success) {
-        // 内部データ更新
-        const idx = allPlugins.findIndex(pl => pl.path === plugin.path);
-        if (idx !== -1) {
-          allPlugins[idx] = {
-            ...allPlugins[idx],
-            ...res.data,
-            analyzed: true
-          };
+        for (const plugin of myBatch) {
+          const data = res.results[plugin.path];
+          const idx = allPlugins.findIndex(pl => pl.path === plugin.path);
+          if (data && idx !== -1) {
+            allPlugins[idx] = { ...allPlugins[idx], ...data, analyzed: true };
+            processedCount++;
+            addLog(t('log.success', { name: data.name, developer: data.developer }), 'success');
+          } else {
+            failedCount++;
+            addLog(t('log.failed', { name: plugin.name, message: 'no result' }), 'error');
+          }
         }
-        processedCount++;
-        progressCurrent.textContent = processedCount;
-        const pct = (processedCount / unanalyzed.length) * 100;
-        progressBarFill.style.width = `${pct}%`;
-        addLog(`成功: ${res.data.name} (${res.data.developer})`, 'success');
       } else {
-        addLog(`失敗: ${plugin.name} - ${res.message}`, 'error');
+        failedCount += myBatch.length;
+        for (const plugin of myBatch) {
+          addLog(t('log.failed', { name: plugin.name, message: res.message }), 'error');
+        }
       }
+
+      progressCurrent.textContent = processedCount;
+      progressBarFill.style.width = `${(processedCount / targets.length) * 100}%`;
 
       // UIの統計とサイドバーを途中でも徐々に更新（UX向上）
       updateStatistics();
@@ -746,32 +835,63 @@ btnAnalyzeAll.addEventListener('click', async () => {
 
   // ワーカーを並行数分起動
   const workers = [];
-  const workerCount = Math.min(concurrency, queue.length);
+  const workerCount = Math.min(ANALYZE_BATCH_CONCURRENCY, totalBatches);
   for (let i = 0; i < workerCount; i++) {
     workers.push(worker());
   }
-
-  // すべてのワーカーが完了するのを待つ
   await Promise.all(workers);
 
   if (isAnalyzingAll) {
-    addLog('一括解析が終了しました。', 'success');
+    addLog(t('log.batch_done', { done: processedCount, failed: failedCount }), 'success');
   } else {
-    addLog('一括解析が中断されました。', 'error');
+    addLog(t('log.batch_cancelled'), 'error');
   }
   
   filterAndRenderPlugins();
   
   // キャンセルボタンを「閉じる」に変更
-  btnCancelAnalyze.textContent = '閉じる';
+  btnCancelAnalyze.textContent = t('action.close');
+}
+
+// 未解析プラグインの一括解析
+btnAnalyzeAll.addEventListener('click', async () => {
+  const unanalyzed = allPlugins.filter(p => !p.analyzed);
+  if (unanalyzed.length === 0) {
+    alert(t('alert.no_unanalyzed'));
+    return;
+  }
+
+  if (!confirm(t('confirm.analyze_all', {
+    count: unanalyzed.length,
+    batch: ANALYZE_BATCH_SIZE,
+    concurrency: ANALYZE_BATCH_CONCURRENCY
+  }))) {
+    return;
+  }
+
+  await runBatchAnalyze(unanalyzed);
+});
+
+// 全プラグインの再解析（既存結果を上書き）
+btnReanalyzeAll.addEventListener('click', async () => {
+  if (allPlugins.length === 0) {
+    alert(t('alert.no_plugins'));
+    return;
+  }
+
+  if (!confirm(t('confirm.reanalyze_all', { count: allPlugins.length }))) {
+    return;
+  }
+
+  await runBatchAnalyze([...allPlugins]);
 });
 
 // キャンセル・閉じるボタン
-btnCancelAnalyze.textContent = 'キャンセル';
+btnCancelAnalyze.textContent = 'Cancel';
 btnCancelAnalyze.addEventListener('click', () => {
   isAnalyzingAll = false;
   modalProgress.classList.remove('show');
-  btnCancelAnalyze.textContent = 'キャンセル';
+  btnCancelAnalyze.textContent = t('action.cancel');
 });
 
 function addLog(text, type = '') {
@@ -794,10 +914,10 @@ async function sendChatMessage() {
   chatInput.value = '';
   
   // ローディングを追加
-  const loadingMsg = addChatMessage('<div class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;margin-right:8px;vertical-align:middle;"></div>AIが応答を考え中...', 'loading');
+  const loadingMsg = addChatMessage(`<div class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;margin-right:8px;vertical-align:middle;"></div>${t('chat.thinking')}`, 'loading');
   
   try {
-    const res = await window.api.sendChatMessage(text, allPlugins);
+    const res = await window.api.sendChatMessage(text, allPlugins, currentLang);
     loadingMsg.remove();
     
     if (res.success) {
@@ -805,7 +925,7 @@ async function sendChatMessage() {
       
       // データ自動修正アクションが走った場合は画面を再読込
       if (res.actionExecuted) {
-        addChatMessage('[システム通知] プラグイン情報を自動修正しました。画面を再読込します。', 'system');
+        addChatMessage(t('chat.fixed_notice'), 'system');
         
         // 再スキャンでメモリデータを最新化
         allPlugins = await window.api.scanPlugins();
@@ -814,11 +934,11 @@ async function sendChatMessage() {
         filterAndRenderPlugins();
       }
     } else {
-      addChatMessage(`エラー: ${res.reply}`, 'system');
+      addChatMessage(`${t('chat.error_prefix')}${res.reply}`, 'system');
     }
   } catch (err) {
     loadingMsg.remove();
-    addChatMessage(`通信エラーが発生しました: ${err.message}`, 'system');
+    addChatMessage(`${t('chat.comm_error')}${err.message}`, 'system');
   }
 }
 
