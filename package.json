@@ -1,6 +1,6 @@
 {
   "name": "plugman",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "VST Plugin Manager",
   "main": "main.js",
   "scripts": {

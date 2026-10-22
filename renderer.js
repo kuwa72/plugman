@@ -6,6 +6,7 @@ let settings = {};
 let isAnalyzingAll = false;
 let activeUninstallPlugin = null; // 現在アンインストールモーダルで対象としているプラグイン
 let detectedUninstallInfo = null; // 検出されたアンインストール情報
+let chatHistory = []; // AIアシスタントとの会話履歴 ({role: 'user'|'model', text})
 
 // 一括解析のバッチ設定
 const ANALYZE_BATCH_SIZE = 10;
@@ -148,6 +149,7 @@ const btnCloseUninstallModal = document.getElementById('btn-close-uninstall-moda
 const chatPanel = document.getElementById('chat-panel');
 const btnToggleChat = document.getElementById('btn-toggle-chat');
 const btnCloseChat = document.getElementById('btn-close-chat');
+const btnClearChat = document.getElementById('btn-clear-chat');
 const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const btnSendChat = document.getElementById('btn-send-chat');
@@ -173,6 +175,12 @@ window.addEventListener('DOMContentLoaded', async () => {
   
   btnCloseChat.addEventListener('click', () => {
     chatPanel.classList.add('closed');
+  });
+  
+  btnClearChat.addEventListener('click', () => {
+    chatHistory = [];
+    chatMessages.innerHTML = '';
+    addChatMessage(t('chat.welcome.html'), 'system');
   });
   
   btnSendChat.addEventListener('click', sendChatMessage);
@@ -440,7 +448,8 @@ function filterAndRenderPlugins() {
       const devMatch = p.developer && p.developer.toLowerCase().includes(query);
       const pathMatch = p.path && p.path.toLowerCase().includes(query);
       const descMatch = p.description && p.description.toLowerCase().includes(query);
-      return nameMatch || formalNameMatch || devMatch || pathMatch || descMatch;
+      const featMatch = Array.isArray(p.features) && p.features.join(' ').toLowerCase().includes(query);
+      return nameMatch || formalNameMatch || devMatch || pathMatch || descMatch || featMatch;
     });
   }
 
@@ -472,6 +481,9 @@ function filterAndRenderPlugins() {
       const confidenceBadge = p.confidence === 'low'
         ? `<span class="confidence-badge" title="${t('badge.low_confidence')}">?</span>`
         : '';
+      const featureTags = Array.isArray(p.features) && p.features.length > 0
+        ? `<div class="plugin-features">${p.features.map(f => `<span class="feature-tag">${f}</span>`).join('')}</div>`
+        : '';
 
       bodyContent = `
         <div class="plugin-title-area">
@@ -479,6 +491,7 @@ function filterAndRenderPlugins() {
           <div class="plugin-developer">${developer}</div>
         </div>
         <div class="plugin-desc">${description}</div>
+        ${featureTags}
       `;
 
       footerContent = `
@@ -917,11 +930,18 @@ async function sendChatMessage() {
   const loadingMsg = addChatMessage(`<div class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;margin-right:8px;vertical-align:middle;"></div>${t('chat.thinking')}`, 'loading');
   
   try {
-    const res = await window.api.sendChatMessage(text, allPlugins, currentLang);
+    const res = await window.api.sendChatMessage(text, allPlugins, currentLang, chatHistory.slice(-12));
     loadingMsg.remove();
     
     if (res.success) {
       addChatMessage(res.reply, 'ai');
+      
+      // 会話履歴に追加（送信成功時のみ）
+      chatHistory.push({ role: 'user', text });
+      chatHistory.push({ role: 'model', text: res.reply });
+      if (chatHistory.length > 40) {
+        chatHistory = chatHistory.slice(-40);
+      }
       
       // データ自動修正アクションが走った場合は画面を再読込
       if (res.actionExecuted) {

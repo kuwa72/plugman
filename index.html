@@ -187,9 +187,14 @@
     <aside class="chat-panel" id="chat-panel">
       <div class="chat-header">
         <h3><i data-lucide="sparkles"></i> <span data-i18n="chat.title">AI Assistant</span></h3>
-        <button class="action-btn" id="btn-close-chat" data-i18n-title="chat.toggle" title="Toggle AI assistant">
-          <i data-lucide="x"></i>
-        </button>
+        <div class="chat-header-actions">
+          <button class="action-btn" id="btn-clear-chat" data-i18n-title="chat.clear_t" title="Clear conversation">
+            <i data-lucide="eraser"></i>
+          </button>
+          <button class="action-btn" id="btn-close-chat" data-i18n-title="chat.toggle" title="Toggle AI assistant">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
       </div>
       
       <div class="chat-messages" id="chat-messages">

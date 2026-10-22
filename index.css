@@ -702,6 +702,27 @@ body {
   vertical-align: middle;
 }
 
+.plugin-features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.feature-tag {
+  font-size: 0.65rem;
+  color: var(--text-sub);
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.chat-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
 .tip {
   font-size: 0.75rem;
   color: var(--text-sub);
