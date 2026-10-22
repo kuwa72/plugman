@@ -531,10 +531,20 @@ Rules:
 - "is_plugin": true for a music-production VST instrument/effect, false otherwise.
 - "confidence": "high" when identification is certain (official metadata or well-known product),
   "medium" when reasonably inferred, "low" when guessing.
+- "features": 0-5 lowercase snake_case tags describing notable capabilities beyond the
+  category. Important: if the plugin can itself LOAD or HOST other VST/VST3 plugins
+  (plugin chainer/host, e.g. Blue Cat's PatchWork, DDMF MetaPlugin, Kushview Element,
+  Waves StudioRack, Plugin Boutique Scaler host mode), you MUST include "vst_host".
+  Other tags to use when applicable: 'midi_effect', 'midi_tool', 'sidechain',
+  'spectrum_analyzer', 'loudness_meter', 'pitch_correction', 'vocal_processing',
+  'surround', 'spatial_audio', 'rompler', 'drum_machine', 'modular', 'multiband',
+  'linear_phase', 'mastering', 'restoration', 'standalone_capable'.
+  Additional short tags are allowed if clearly useful. Use [] when none apply.
+- If a plugin can host other plugins, mention that capability in the description too.
 - Be consistent: identical inputs must produce identical outputs, and plugins from the
   same vendor in one batch must share the same developer name.
 - Output a pure JSON array. Each element: {"id": <same id>, "name", "developer",
-  "category", "description", "is_plugin", "confidence"}. No markdown fences.
+  "category", "description", "is_plugin", "confidence", "features"}. No markdown fences.
 
 plugins:
 ${JSON.stringify(inputPlugins)}`;
@@ -571,6 +581,7 @@ ${JSON.stringify(inputPlugins)}`;
           developer: item.developer || 'Unknown',
           category,
           description: item.description || prev.description || '',
+          features: Array.isArray(item.features) ? item.features.slice(0, 5).map(String) : [],
           is_plugin: isPlugin,
           confidence,
           aiAnalyzed: true,
@@ -688,7 +699,7 @@ ${JSON.stringify(inputPlugins)}`;
   });
 
   // AIアシスタントへのチャットメッセージ送信とアクション実行
-  ipcMain.handle('send-chat-message', async (event, message, pluginsList, language) => {
+  ipcMain.handle('send-chat-message', async (event, message, pluginsList, language, history) => {
     const settings = loadSettings();
     if (!settings.apiKey) {
       return {
@@ -713,19 +724,28 @@ ${JSON.stringify(inputPlugins)}`;
         name: p.name,
         developer: p.developer || 'Unknown',
         category: p.category || 'Unknown',
+        features: Array.isArray(p.features) ? p.features : [],
         description: p.description || '',
         path: p.path,
         type: p.type
       }));
 
-      const prompt = `You are the dedicated AI assistant of the plugin manager app "Plugman".
-The user asks questions about plugins (e.g. suggestions) or instructs you to fix plugin data (formal name, vendor, category, description).
+      // 直近の会話履歴（古い順、最大12件）
+      const historyText = Array.isArray(history) && history.length > 0
+        ? history.slice(-12).map(h => `[${h.role === 'model' ? 'assistant' : 'user'}]: ${h.text}`).join('\n')
+        : '(none)';
 
-Scanned plugin list:
+      const prompt = `You are the dedicated AI assistant of the plugin manager app "Plugman".
+The user asks questions about plugins (e.g. suggestions) or instructs you to fix plugin data (formal name, vendor, category, description, features).
+
+Scanned plugin list (each entry has "features" capability tags, e.g. "vst_host" = can host other plugins):
 ${JSON.stringify(simplifiedPlugins)}
 
+Conversation so far (oldest first):
+${historyText}
+
 Rules:
-1. If the user asks for plugin suggestions, pick the most suitable ones from the list above and explain their characteristics.
+1. If the user asks for plugin suggestions, pick the most suitable ones from the list above and explain their characteristics. Use the conversation history for follow-up questions (e.g. "the second one", "change that one").
 2. If the user instructs a data fix (e.g. "change ANINA's category to Equalizer"), create an "action" object in the JSON that applies the requested change to the matching plugin.
 3. When changing "category", choose exactly one of: 'Synthesizer', 'Sampler', 'Equalizer', 'Compressor', 'Reverb', 'Delay', 'Distortion', 'Modulation', 'Utility', 'Other', 'Not Plugin'.
 4. Write "reply" in ${replyLang}. If you write a "description" inside an action, also write it in ${replyLang}.

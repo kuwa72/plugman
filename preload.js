@@ -10,5 +10,5 @@ contextBridge.exposeInMainWorld('api', {
   getUninstallInfo: (pluginPath, developer) => ipcRenderer.invoke('get-uninstall-info', pluginPath, developer),
   runExecutable: (exePath) => ipcRenderer.invoke('run-executable', exePath),
   openWindowsApps: () => ipcRenderer.invoke('open-windows-apps'),
-  sendChatMessage: (message, pluginsList, language) => ipcRenderer.invoke('send-chat-message', message, pluginsList, language)
+  sendChatMessage: (message, pluginsList, language, history) => ipcRenderer.invoke('send-chat-message', message, pluginsList, language, history)
 });
